@@ -1,4 +1,4 @@
-use crate::rom::Rom;
+use crate::{rom::Rom, cpu::bus::split_high_low};
 
 use self::{
     bus::{Bus, Mem, combine_high_low},
@@ -9,13 +9,16 @@ mod bus;
 mod flags;
 mod opcodes;
 
+const STACK_BASE_ADDR: u8 = 0xFF;
+const STACK_MSB: u8 = 0x01;
+
 pub struct CPU {
     register_a: u8,
     register_x: u8,
     register_y: u8,
     status: CpuFlags,
     program_counter: u16,
-    stack_pointer: u16,
+    stack_pointer: u8,
     bus: Bus,
 }
 
@@ -25,12 +28,26 @@ impl CPU {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            status: CpuFlags::from_bits(0),
+            status: CpuFlags::from(0),
             program_counter: 0,
-            stack_pointer: 0,
+            stack_pointer: 0xFF,
             bus: Bus::new(rom),
         }
     }
+
+    fn push_stack(&mut self, data: u8) {
+        let addr = combine_high_low(STACK_MSB, self.stack_pointer);
+        self.bus.mem_write(addr, data);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+
+    fn pop_stack(&mut self) -> u8 {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        let addr = combine_high_low(STACK_MSB, self.stack_pointer);
+        self.bus.mem_read(addr)
+    }
+
 
     fn execute_with_callback<F>(&mut self, mut callback: F)
     where
@@ -65,7 +82,7 @@ impl CPU {
             OpGroup::BMI => self.bmi(opcode),
             OpGroup::BNE => self.bne(opcode),
             OpGroup::BPL => self.bpl(opcode),
-            OpGroup::BRK => self.brk(opcode),
+            OpGroup::BRK => self.brk(),
             OpGroup::BVC => self.bvc(opcode),
             OpGroup::BVS => self.bvs(opcode),
             OpGroup::CLC => self.clc(opcode),
@@ -90,7 +107,7 @@ impl CPU {
             OpGroup::LSR => self.lsr(opcode),
             OpGroup::NOP => self.nop(),
             OpGroup::ORA => self.ora(opcode),
-            OpGroup::PHA => self.pha(opcode),
+            OpGroup::PHA => self.pha(),
             OpGroup::PHP => self.php(opcode),
             OpGroup::PLA => self.pla(opcode),
             OpGroup::PLP => self.plp(opcode),
@@ -218,8 +235,14 @@ impl CPU {
         }
     }
 
-    fn brk(&mut self, opcode: &OpCode) {
-        todo!("Implement brk");
+    fn brk(&mut self) {
+        let (high, low) = split_high_low(self.program_counter);
+        self.push_stack(high);
+        self.push_stack(low);
+        self.push_stack(self.status.into());
+
+        self.program_counter = self.bus.mem_read_u16(0xFFFE);
+        self.status.break_cmd = true;
     }
 
     
@@ -328,7 +351,12 @@ impl CPU {
     }
 
     fn jsr(&mut self, opcode: &OpCode) {
-        todo!("Implement jsr");
+        let addr = self.convert_to_memory_address(opcode.mode);
+        let (high, low) = split_high_low(self.program_counter + 2);
+
+        self.push_stack(high);
+        self.push_stack(low);
+        self.program_counter = addr;
     }
 
     fn lda(&mut self, opcode: &OpCode) {
@@ -369,20 +397,21 @@ impl CPU {
         self.handle_zero_and_negative_flags(self.register_a);
     }
 
-    fn pha(&mut self, opcode: &OpCode) {
-        todo!("not implemented yet");
+    fn pha(&mut self) {
+        self.push_stack(self.register_a);
     }
 
     fn php(&mut self, opcode: &OpCode) {
-        todo!("not implemented yet");
+        self.push_stack(self.status.into());
     }
 
     fn pla(&mut self, opcode: &OpCode) {
-        todo!("not implemented yet");
+        self.register_a = self.pop_stack();
+        self.handle_zero_and_negative_flags(self.register_a);
     }
 
     fn plp(&mut self, opcode: &OpCode) {
-        todo!("not implemented yet");
+        self.status = self.pop_stack().into();
     }
 
     fn rol(&mut self, opcode: &OpCode) {
@@ -418,11 +447,16 @@ impl CPU {
     }
 
     fn rti(&mut self) {
-        todo!();
+        self.status = self.pop_stack().into();
+        let low = self.pop_stack();
+        let high = self.pop_stack();
+        self.program_counter = combine_high_low(high, low);
     }
 
     fn rts(&mut self) {
-        todo!();
+        let low = self.pop_stack();
+        let high = self.pop_stack();
+        self.program_counter = combine_high_low(high, low) + 1;
     }
 
     fn sbc(&mut self, opcode: &OpCode) {
@@ -455,15 +489,18 @@ impl CPU {
     }
 
     fn sta(&mut self, opcode: &OpCode) {
-        todo!();
+        let addr = self.convert_to_memory_address(opcode.mode);
+        self.bus.mem_write(addr, self.register_a);
     }
 
     fn stx(&mut self, opcode: &OpCode) {
-        todo!();
+        let addr = self.convert_to_memory_address(opcode.mode);
+        self.bus.mem_write(addr, self.register_x);
     }
 
     fn sty(&mut self, opcode: &OpCode) {
-        todo!();
+        let addr = self.convert_to_memory_address(opcode.mode);
+        self.bus.mem_write(addr, self.register_y);
     }
 
     fn tax(&mut self) {
@@ -477,7 +514,8 @@ impl CPU {
     }
 
     fn tsx(&mut self) {
-        todo!();
+        self.register_x = self.stack_pointer;
+        self.handle_zero_and_negative_flags(self.register_x);
     }
 
     fn txa(&mut self) {
@@ -486,7 +524,7 @@ impl CPU {
     }
 
     fn txs(&mut self) {
-        todo!();
+        self.stack_pointer = self.register_x;
     }
 
     fn tya(&mut self) {

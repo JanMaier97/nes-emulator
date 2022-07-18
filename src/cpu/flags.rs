@@ -6,6 +6,7 @@ const BREAK_CMD_MASK: u8 = 0b0011_0000;
 const OVERFLOW_MASK: u8 = 0b0100_0000;
 const NEGATIVE_MASK: u8 = 0b1000_0000;
 
+#[derive(Debug, Clone, Copy)]
 pub struct CpuFlags {
     pub carry: bool,
     pub zero: bool,
@@ -16,8 +17,9 @@ pub struct CpuFlags {
     pub negative: bool,
 }
 
-impl CpuFlags {
-    pub fn from_bits(flags: u8) -> Self {
+
+impl From<u8> for CpuFlags {
+    fn from(flags: u8) -> Self {
         CpuFlags {
             carry: (flags & CARRY_MASK) > 0,
             zero: (flags & ZERO_MASK) > 0,
@@ -29,3 +31,44 @@ impl CpuFlags {
         }
     }
 }
+
+impl From<CpuFlags>  for u8 {
+    fn from(flags: CpuFlags) -> Self {
+        let mut value = 0;
+
+        if flags.carry {
+            value += CARRY_MASK;
+        }
+
+        if flags.zero {
+            value += ZERO_MASK;
+        }
+        
+        if flags.interrupt {
+            value += INTERRUPT_MASK;
+        }
+
+        if flags.decimal_mode {
+            value += DECIMAL_MODE_MASK;
+        }
+
+        if flags.break_cmd {
+            value += BREAK_CMD_MASK;
+        }
+
+        if flags.overflow {
+            value += OVERFLOW_MASK;
+        }
+
+        if flags.negative {
+            value += NEGATIVE_MASK;
+        }
+
+        value
+    }
+}
+
+// impl CpuFlags {
+//     pub fn from_bits(flags: u8) -> Self {
+//     }
+// }
