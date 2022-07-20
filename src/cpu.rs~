@@ -5,7 +5,7 @@ use crate::rom::Rom;
 
 use self::{
     bus::{Address, Bus, Mem, Value, Value16},
-    flags::{CpuFlags, NEGATIVE_MASK},
+    flags::CpuFlags,
     opcodes::{AddressingMode, OpCode, OpGroup, CPU_OPS_CODES},
 };
 
@@ -273,11 +273,6 @@ impl CPU {
 
     fn adc(&mut self, operand: Either<Value, Address>) {
         let value = self.fetch_value(operand);
-
-        self.adc_value(value);
-    }
-
-    fn adc_value(&mut self, value: Value) {
         let (result, is_overflow) = self.register_a.overflowing_add(value);
 
         let carry = if self.status.carry {
@@ -288,12 +283,10 @@ impl CPU {
 
         let (result, is_overflow2) = result.overflowing_add(carry.into());
 
+        self.register_a = result;
         self.status.carry = is_overflow || is_overflow2;
         self.status.overflow = self.status.carry;
         self.handle_zero_and_negative_flags(result);
-
-        self.status.overflow = self.register_a & NEGATIVE_MASK == value & NEGATIVE_MASK && result & NEGATIVE_MASK != value & NEGATIVE_MASK;
-        self.register_a = result;
     }
 
     fn bcc(&mut self, operand: Address) {
@@ -598,7 +591,18 @@ impl CPU {
     fn sbc(&mut self, operand: Either<Value, Address>) {
         let value = self.fetch_value(operand);
 
-        self.adc_value(!value);
+        let carry: Value = if self.status.carry {
+            1.into()
+        } else {
+            0.into()
+        };
+
+        let (result, overflow1) = self.register_a.overflowing_sub(value);
+        let (result, overflow2) = result.overflowing_sub(Value::from(1) - carry.into());
+
+        self.register_a = result;
+        self.status.carry = overflow1 || overflow2;
+        self.handle_zero_and_negative_flags(result);
     }
 
     fn sec(&mut self) {
@@ -748,7 +752,7 @@ fn format_interpreted_instruction(instruction: &Instruction, cpu: &CPU) -> Strin
     };
 
     let formatted_operand = match instruction.opcode.mode {
-        AddressingMode::Absolute => format!("${:04X}", operand.unwrap()),
+        AddressingMode::Absolute => format!("${:4X}", operand.unwrap()),
         AddressingMode::AbsoluteX => "2".to_string(),
         AddressingMode::AbsoluteY => "3".to_string(),
         AddressingMode::Accumulator => "4".to_string(),
