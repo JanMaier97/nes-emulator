@@ -2,6 +2,8 @@ use core::fmt;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
+use super::bus::Value;
+
 lazy_static! {
     pub static ref CPU_OPS_CODES: HashMap<u8, OpCode> = [
         (
@@ -358,7 +360,7 @@ lazy_static! {
         ),
         (
             0xB4,
-            OpCode::new(OpGroup::LDY, 2, 4, AddressingMode::ZeroPageY)
+            OpCode::new(OpGroup::LDY, 2, 4, AddressingMode::ZeroPageX)
         ),
         (
             0xAC,
@@ -366,7 +368,7 @@ lazy_static! {
         ),
         (
             0xBC,
-            OpCode::new(OpGroup::LDY, 3, 4, AddressingMode::AbsoluteY)
+            OpCode::new(OpGroup::LDY, 3, 4, AddressingMode::AbsoluteX)
         ),
         (
             0x4a,
@@ -378,7 +380,7 @@ lazy_static! {
         ),
         (
             0x56,
-            OpCode::new(OpGroup::LSR, 2, 6, AddressingMode::ZeroPageY)
+            OpCode::new(OpGroup::LSR, 2, 6, AddressingMode::ZeroPageX)
         ),
         (
             0x4e,
@@ -386,7 +388,7 @@ lazy_static! {
         ),
         (
             0x5e,
-            OpCode::new(OpGroup::LSR, 3, 7, AddressingMode::AbsoluteY)
+            OpCode::new(OpGroup::LSR, 3, 7, AddressingMode::AbsoluteX)
         ),
         (
             0xea,
@@ -714,4 +716,13 @@ pub enum AddressingMode {
     ZeroPageY,
     Relative,
     Indirect,
+}
+
+pub fn get_opcode(raw_opcode: Value) -> OpCode {
+    let opcode = CPU_OPS_CODES.get(&raw_opcode.into());
+
+    match opcode {
+        Some(op) => *op,
+        None => panic!("Opcode {:02X} is not defined yet", raw_opcode)
+    }
 }

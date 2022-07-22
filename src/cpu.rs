@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use either::Either;
 use Either::{Left, Right};
 
@@ -6,7 +8,7 @@ use crate::rom::Rom;
 use self::{
     bus::{Address, Bus, Mem, Value, Value16},
     flags::{CpuFlags, NEGATIVE_MASK},
-    opcodes::{AddressingMode, OpCode, OpGroup, CPU_OPS_CODES},
+    opcodes::{AddressingMode, OpCode, OpGroup, CPU_OPS_CODES, get_opcode},
 };
 
 mod bus;
@@ -70,13 +72,14 @@ impl CPU {
             OpGroup::JMP => {}
             OpGroup::JSR => {}
             OpGroup::RTS => {}
+            OpGroup::RTI => {}
             _ => self.program_counter += instruction.opcode.bytes.into(),
         }
     }
 
     pub fn read_instruction(&self) -> Instruction {
         let raw_opcode = self.bus.mem_read(self.program_counter);
-        let opcode = *CPU_OPS_CODES.get(&raw_opcode.into()).unwrap();
+        let opcode = get_opcode(raw_opcode);
         let raw_operand = self.get_raw_operand(opcode);
         let operand = self.get_operand(raw_operand, &opcode);
 
@@ -119,9 +122,19 @@ impl CPU {
                     .expect_right("Absolute canot have left value")
                     .into(),
             )),
-            AddressingMode::AbsoluteX => todo!(),
-            AddressingMode::AbsoluteY => todo!(),
-            AddressingMode::Accumulator => todo!(),
+            AddressingMode::AbsoluteX => {
+                let base_addr: Address = raw_operand.unwrap().unwrap_right().into();
+                let offset: Address = self.register_x.into();
+
+                Some(Right(base_addr.wrapping_add(offset)))
+            },
+            AddressingMode::AbsoluteY => {
+                let base_addr: Address = raw_operand.unwrap().unwrap_right().into();
+                let offset: Address = self.register_y.into();
+
+                Some(Right(base_addr.wrapping_add(offset)))
+            },
+            AddressingMode::Accumulator => None,
             AddressingMode::Immediate => Some(Left(
                 raw_operand
                     .unwrap()
@@ -129,16 +142,36 @@ impl CPU {
                     .into(),
             )),
             AddressingMode::Implicit => None,
-            AddressingMode::IndirectX => todo!(),
-            AddressingMode::IndirectY => todo!(),
+            AddressingMode::IndirectX => {
+                let value = raw_operand.unwrap().unwrap_left();
+                let addr = value.wrapping_add(self.register_x);
+
+                Some(Right(self.bus.mem_read_addr_zero_page(addr)))
+            }
+            AddressingMode::IndirectY => {
+                let value = raw_operand.unwrap().unwrap_left();
+                let base_addr = self.bus.mem_read_addr_zero_page(value);
+                
+                Some(Right(base_addr.wrapping_add(self.register_y.into())))
+            },
             AddressingMode::ZeroPage => Some(Right(
                 raw_operand
                     .unwrap()
                     .expect_left("Immediate canot have right value")
                     .into(),
             )),
-            AddressingMode::ZeroPageX => todo!(),
-            AddressingMode::ZeroPageY => todo!(),
+            AddressingMode::ZeroPageX => {
+                let operand = raw_operand.unwrap().unwrap_left();
+                let addr: Address = operand.wrapping_add(self.register_x).into();
+
+                Some(Right(addr))
+            },
+            AddressingMode::ZeroPageY => {
+                let operand = raw_operand.unwrap().unwrap_left();
+                let addr: Address = operand.wrapping_add(self.register_y).into();
+
+                Some(Right(addr))
+            },
             AddressingMode::Relative => Some(Right(
                 self.program_counter
                     + opcode.bytes.into()
@@ -147,7 +180,20 @@ impl CPU {
                         .expect_left("Relative cannot have right value")
                         .into(),
             )),
-            AddressingMode::Indirect => todo!(),
+            AddressingMode::Indirect => {
+                let indirect_addr: Address = raw_operand.unwrap().unwrap_right().into();
+                let (msb, lsb) = indirect_addr.split();
+                
+                let addr = if lsb == 0xFF.into() {
+                    let addr_lsb = self.bus.mem_read(indirect_addr);
+                    let addr_msb = self.bus.mem_read(Address::from_values(msb, 00.into())); 
+                    Address::from_values(addr_msb, addr_lsb)
+                } else {
+                    self.bus.mem_read_addr(indirect_addr)
+                };
+
+                Some(Right(addr))
+            },
         }
     }
 
@@ -168,7 +214,7 @@ impl CPU {
         let opcode = self.bus.mem_read(self.program_counter);
         // self.program_counter += 1.into();
 
-        *CPU_OPS_CODES.get(&opcode.into()).unwrap()
+        get_opcode(opcode)
     }
 
     fn handle_opcode(&mut self, instruction: &Instruction) {
@@ -260,7 +306,7 @@ impl CPU {
             None => self.register_a = result,
         }
 
-        self.status.carry = value & 0b10000000.into() == 1.into();
+        self.status.carry = value >> 7.into() == 1.into();
         self.handle_zero_and_negative_flags(result);
     }
 
@@ -357,8 +403,8 @@ impl CPU {
         let value: Value16 = self.program_counter.into();
         let (v1, v2) = value.split();
 
-        self.push_stack(v1);
         self.push_stack(v2);
+        self.push_stack(v1);
         self.push_stack(self.status.into());
 
         self.program_counter = self.bus.mem_read_addr(0xFFFE.into());
@@ -471,8 +517,8 @@ impl CPU {
         let val: Value16 = (self.program_counter + 2.into()).into();
         let (v1, v2) = val.split();
 
-        self.push_stack(v1);
         self.push_stack(v2);
+        self.push_stack(v1);
         self.program_counter = operand;
     }
 
@@ -498,7 +544,7 @@ impl CPU {
             self.register_a
         };
 
-        let result = value >> 2.into();
+        let result = value >> 1.into();
         match operand {
             Some(addr) => self.bus.mem_write(addr, result),
             None => self.register_a = result,
@@ -583,14 +629,14 @@ impl CPU {
 
     fn rti(&mut self) {
         self.status = self.pop_stack().into();
-        let low = self.pop_stack();
         let high = self.pop_stack();
+        let low = self.pop_stack();
         self.program_counter = Value16::from_values(high, low).into();
     }
 
     fn rts(&mut self) {
-        let low = self.pop_stack();
         let high = self.pop_stack();
+        let low = self.pop_stack();
         self.program_counter = Value16::from_values(high, low).into();
         self.program_counter += 1.into();
     }
@@ -721,7 +767,7 @@ fn trace(cpu: &CPU) -> String {
     let registers = format_registers(&cpu);
 
     format!(
-        "{:02X}  {:8}  {:30}  {}",
+        "{:04X}  {:8}  {:30}  {}",
         cpu.program_counter, raw_instruction, interpreted_instruction, registers
     )
 }
@@ -747,26 +793,88 @@ fn format_interpreted_instruction(instruction: &Instruction, cpu: &CPU) -> Strin
         None => None,
     };
 
-    let formatted_operand = match instruction.opcode.mode {
-        AddressingMode::Absolute => format!("${:04X}", operand.unwrap()),
-        AddressingMode::AbsoluteX => "2".to_string(),
-        AddressingMode::AbsoluteY => "3".to_string(),
-        AddressingMode::Accumulator => "4".to_string(),
-        AddressingMode::Immediate => format!("#${:02X}", operand.unwrap()),
-        AddressingMode::Implicit => "".to_string(),
-        AddressingMode::IndirectX => "7".to_string(),
-        AddressingMode::IndirectY => "8".to_string(),
-        AddressingMode::ZeroPage => format!(
-            "${:02X} = {:02X}",
-            operand.unwrap(),
-            cpu.bus.mem_read(operand.unwrap())
-        ),
-        AddressingMode::ZeroPageX => "10".to_string(),
-        AddressingMode::ZeroPageY => "11".to_string(),
-        AddressingMode::Relative => format!("${:4X}", operand.unwrap()),
-        AddressingMode::Indirect => "13".to_string(),
+    let formatted_addr_operand = match operand {
+        Some(op) => format_address_operand(op, instruction, cpu),
+        None => match instruction.opcode.mode {
+            AddressingMode::Accumulator => "A".to_string(),
+            _ => "".to_string()
+        }
     };
-    format!("{} {}", instruction.opcode.group, formatted_operand)
+     
+    format!("{} {}", instruction.opcode.group, formatted_addr_operand)
+}
+
+fn format_address_operand(addr: Address, instruction: &Instruction, cpu: &CPU) -> String {
+    match instruction.opcode.group {
+        OpGroup::JMP => match instruction.opcode.mode {
+           AddressingMode::Indirect =>
+           {
+               let raw_address: Address = instruction.raw_operand.unwrap().unwrap_right().into();
+               format!("(${:04X}) = {:04X}", raw_address, addr)
+           }
+            _ => format!("${:04X}", addr)
+        },
+        OpGroup::JSR => format!("${:04X}", addr),
+        _ => {
+            let value = cpu.bus.mem_read(addr);
+            match instruction.opcode.mode {
+            AddressingMode::Absolute => format!("${:04X} = {:02X}", addr, value),
+            AddressingMode::AbsoluteX => {
+                let raw_addr: Address = instruction.raw_operand.unwrap().unwrap_right().into();
+                let addr = instruction.operand.unwrap().unwrap_right();
+                let value = cpu.bus.mem_read(addr);
+
+                format!("${:04X},X @ {:04X} = {:02X}", raw_addr, addr, value)
+            },
+            AddressingMode::AbsoluteY => {
+                let raw_addr: Address = instruction.raw_operand.unwrap().unwrap_right().into();
+                let addr = instruction.operand.unwrap().unwrap_right();
+                let value = cpu.bus.mem_read(addr);
+
+                format!("${:04X},Y @ {:04X} = {:02X}", raw_addr, addr, value)
+            },
+            AddressingMode::Accumulator => "4".to_string(),
+            AddressingMode::Immediate => format!("#${:02X}", addr),
+            AddressingMode::Implicit => "".to_string(),
+            AddressingMode::IndirectX => {
+                let raw_op = instruction.raw_operand.unwrap().unwrap_left();
+                let zero_page_addr = raw_op.wrapping_add(cpu.register_x);
+                let addr = instruction.operand.unwrap().unwrap_right();
+                format!("(${:02X},X) @ {:02X} = {:04X} = {:02X}", raw_op, zero_page_addr, addr, value)
+            }
+            AddressingMode::IndirectY => {
+                let raw_op = instruction.raw_operand.unwrap().unwrap_left();
+                let base_addr = cpu.bus.mem_read_addr_zero_page(raw_op);
+                let addr = instruction.operand.unwrap().unwrap_right();
+
+                format!("(${:02X}),Y = {:04X} @ {:04X} = {:02X}", raw_op, base_addr, addr, value)
+            },
+            AddressingMode::ZeroPage => format!(
+                "${:02X} = {:02X}",
+                addr,
+                cpu.bus.mem_read(addr)
+            ),
+            AddressingMode::ZeroPageX => {
+                let raw_operand = instruction.raw_operand.unwrap().unwrap_left();
+                let operand = instruction.operand.unwrap().unwrap_right();
+                let value = cpu.bus.mem_read(operand);
+                
+
+                format!("${:02X},X @ {:02X} = {:02X}", raw_operand, operand, value)
+            },
+            AddressingMode::ZeroPageY => {
+                let raw_operand = instruction.raw_operand.unwrap().unwrap_left();
+                let operand = instruction.operand.unwrap().unwrap_right();
+                let value = cpu.bus.mem_read(operand);
+                
+
+                format!("${:02X},Y @ {:02X} = {:02X}", raw_operand, operand, value)
+            },
+            AddressingMode::Relative => format!("${:04X}", addr),
+            AddressingMode::Indirect => "13".to_string(),
+        } 
+        }
+    }
 }
 
 fn format_registers(cpu: &CPU) -> String {

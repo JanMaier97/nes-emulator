@@ -185,8 +185,17 @@ impl Address {
         Address(value)
     }
 
+    pub fn wrapping_add(self, value: Address) -> Address {
+        self.0.wrapping_add(value.0).into()
+    }
+
     pub fn from_values(high: Value, low: Value) -> Address {
         Address(combine_high_low(high.0, low.0))
+    }
+
+    pub fn split(self) -> (Value, Value) {
+        let (h, l) = split_high_low(self.0);
+        (Value(h), Value(l))
     }
 }
 
@@ -244,6 +253,7 @@ pub trait Mem {
     fn mem_read(&self, addr: Address) -> Value;
     fn mem_read_u16(&self, addr: Address) -> Value16;
     fn mem_read_addr(&self, addr: Address) -> Address;
+    fn mem_read_addr_zero_page(&self, addr: Value) -> Address;
     fn mem_write(&mut self, addr: Address, data: Value);
     fn mem_write_u16(&mut self, addr: Address, data: Value16);
 }
@@ -308,6 +318,12 @@ impl Mem for Bus {
                 println!("Ignoring mem write-access at {}", addr);
             }
         }
+    }
+
+    fn mem_read_addr_zero_page(&self, addr: Value) -> Address {
+        let val1 = self.mem_read(addr.into());
+        let val2 = self.mem_read(addr.wrapping_add(1.into()).into());
+        Address::from_values(val2, val1)
     }
 
     fn mem_read_addr(&self, addr: Address) -> Address {
