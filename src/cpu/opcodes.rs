@@ -723,6 +723,6 @@ pub fn get_opcode(raw_opcode: Value) -> OpCode {
 
     match opcode {
         Some(op) => *op,
-        None => panic!("Opcode {:02X} is not defined yet", raw_opcode)
+        None => panic!("Opcode {:02X} is not defined yet", raw_opcode),
     }
 }

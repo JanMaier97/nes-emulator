@@ -1,7 +1,9 @@
-
 use crate::rom::Rom;
 
-use self::{address::Address, values::{Value, Value16}};
+use self::{
+    address::Address,
+    values::{Value, Value16},
+};
 
 pub mod address;
 pub mod values;
@@ -17,7 +19,6 @@ const RAM_ADDRESS_MASK: u16 = 0b00000111_11111111;
 const PPU_ADDRESS_MASK: u16 = 0b00100000_00000111;
 pub const DEFAUKT_STACK_POINTER: u16 = 0;
 
-
 fn split_high_low(value: u16) -> (u8, u8) {
     let low = value & 0xFF;
     let high = value >> 8;
@@ -30,8 +31,6 @@ fn combine_high_low(high: u8, low: u8) -> u16 {
     let low = low as u16;
     (high << 8) | low
 }
-
-
 
 pub trait Mem {
     fn mem_read(&self, addr: Address) -> Value;

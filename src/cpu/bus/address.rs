@@ -1,12 +1,13 @@
 use core::fmt;
 use std::ops;
 
-use super::{values::{Value, Value16}, split_high_low, combine_high_low};
-
+use super::{
+    combine_high_low, split_high_low,
+    values::{Value, Value16},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Address(u16);
-
 
 impl From<Address> for u16 {
     fn from(val: Address) -> Self {

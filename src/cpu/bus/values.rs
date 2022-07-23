@@ -1,7 +1,7 @@
 use core::fmt;
 use std::ops;
 
-use super::{split_high_low, address::Address};
+use super::{address::Address, split_high_low};
 
 // Raw value read from memory
 #[derive(Debug, Eq, Hash, PartialOrd, Clone, Copy)]
@@ -9,7 +9,6 @@ pub struct Value(u8);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Value16(u16);
-
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
@@ -119,8 +118,6 @@ impl From<Address> for Value16 {
         Value16::from_values(low.into(), high.into())
     }
 }
-
-
 
 impl Value16 {
     pub fn from_values(high: Value, low: Value) -> Value16 {
