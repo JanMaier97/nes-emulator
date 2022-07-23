@@ -1,4 +1,4 @@
-use super::bus::Value;
+use super::bus::values::Value;
 
 const CARRY_MASK: Value = Value::from_const(0b0000_0001);
 const ZERO_MASK: Value = Value::from_const(0b0000_0010);

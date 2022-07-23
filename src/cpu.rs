@@ -1,4 +1,3 @@
-use std::fmt::format;
 
 use either::Either;
 use Either::{Left, Right};
@@ -6,9 +5,9 @@ use Either::{Left, Right};
 use crate::rom::Rom;
 
 use self::{
-    bus::{Address, Bus, Mem, Value, Value16},
+    bus::{Bus, Mem, address::Address, values::{Value, Value16}},
     flags::{CpuFlags, NEGATIVE_MASK},
-    opcodes::{AddressingMode, OpCode, OpGroup, CPU_OPS_CODES, get_opcode},
+    opcodes::{AddressingMode, OpCode, OpGroup, get_opcode},
 };
 
 mod bus;
@@ -705,59 +704,6 @@ impl CPU {
         self.status.negative = (value >> 7.into()) != 0.into();
     }
 
-    fn get_operand_value(&self, opcode: &OpCode) -> Value {
-        match opcode.mode {
-            AddressingMode::Implicit => panic!(
-                "Cannot get operand of opcode {:?} because it is implicit",
-                opcode
-            ),
-            AddressingMode::Accumulator => self.register_a,
-            _ => self
-                .bus
-                .mem_read(self.convert_to_memory_address(opcode.mode)),
-        }
-    }
-
-    fn convert_to_memory_address(&self, mode: AddressingMode) -> Address {
-        match mode {
-            AddressingMode::Implicit => {
-                panic!("Cannot convert implicit addressing mode to an address")
-            }
-            AddressingMode::Accumulator => {
-                panic!("Cannot convert accumulator addressing mode to address")
-            }
-            AddressingMode::Immediate => self.program_counter,
-            AddressingMode::ZeroPage => self.bus.mem_read(self.program_counter).into(),
-            AddressingMode::ZeroPageX => {
-                (self.bus.mem_read(self.program_counter) + self.register_x).into()
-            }
-            AddressingMode::ZeroPageY => {
-                (self.bus.mem_read(self.program_counter) + self.register_y).into()
-            }
-            AddressingMode::Relative => {
-                self.program_counter + self.bus.mem_read(self.program_counter).into()
-            }
-            AddressingMode::Absolute => self.bus.mem_read_addr(self.program_counter),
-            AddressingMode::AbsoluteX => {
-                self.bus.mem_read_addr(self.program_counter) + self.register_x.into()
-            }
-            AddressingMode::AbsoluteY => {
-                self.bus.mem_read_addr(self.program_counter) + self.register_y.into()
-            }
-            AddressingMode::Indirect => self
-                .bus
-                .mem_read_addr(self.bus.mem_read_addr(self.program_counter).into()),
-            AddressingMode::IndirectX => {
-                let base_addr = self.bus.mem_read(self.program_counter);
-                let table_addr = base_addr.wrapping_add(self.register_x).into();
-
-                self.bus.mem_read_addr(table_addr)
-            }
-            AddressingMode::IndirectY => {
-                self.bus.mem_read_addr(self.program_counter) + self.register_y.into()
-            }
-        }
-    }
 }
 
 fn trace(cpu: &CPU) -> String {

@@ -2,7 +2,7 @@ use core::fmt;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
-use super::bus::Value;
+use super::bus::values::Value;
 
 lazy_static! {
     pub static ref CPU_OPS_CODES: HashMap<u8, OpCode> = [
