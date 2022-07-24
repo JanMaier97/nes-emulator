@@ -174,14 +174,20 @@ impl CPU {
 
                 Some(Right(addr))
             }
-            AddressingMode::Relative => Some(Right(
-                self.program_counter
-                    + opcode.bytes.into()
-                    + raw_operand
-                        .unwrap()
-                        .expect_left("Relative cannot have right value")
-                        .into(),
-            )),
+            AddressingMode::Relative => {
+                let raw_operand = raw_operand.unwrap().unwrap_left();
+                let opcode_offset = Value::from(opcode.bytes);
+                let is_negative = raw_operand & NEGATIVE_MASK > 1.into();
+                let addr = self.program_counter.wrapping_add(opcode_offset.into());
+
+                if !is_negative {
+                    Some(Right(addr.wrapping_add(raw_operand.into())))
+                } else {
+                    // maybe the custom Value and address struct was a bad idea
+                    let raw_operand = !raw_operand + 1.into();
+                    Some(Right(addr.wrapping_sub(raw_operand.into())))
+                }
+            }
             AddressingMode::Indirect => {
                 let indirect_addr: Address = raw_operand.unwrap().unwrap_right().into();
                 let (msb, lsb) = indirect_addr.split();
@@ -245,16 +251,19 @@ impl CPU {
             OpGroup::CMP => self.cmp(instruction.operand.unwrap()),
             OpGroup::CPX => self.cpx(instruction.operand.unwrap()),
             OpGroup::CPY => self.cpy(instruction.operand.unwrap()),
+            OpGroup::DCP => self.dcp(instruction.operand.unwrap().unwrap_right()),
             OpGroup::DEC => self.dec(instruction.operand.unwrap().unwrap_right()),
             OpGroup::DEX => self.dex(),
             OpGroup::DEY => self.dey(),
             OpGroup::EOR => self.eor(instruction.operand.unwrap()),
+            OpGroup::ISB => self.isb(instruction.operand.unwrap().unwrap_right()),
             OpGroup::INC => self.inc(instruction.operand.unwrap().unwrap_right()),
             OpGroup::INX => self.inx(),
             OpGroup::INY => self.iny(),
             OpGroup::JMP => self.jmp(instruction.operand.unwrap().unwrap_right()),
             OpGroup::JSR => self.jsr(instruction.operand.unwrap().unwrap_right()),
             OpGroup::LDA => self.lda(instruction.operand.unwrap()),
+            OpGroup::LAX => self.lax(instruction.operand.unwrap()),
             OpGroup::LDX => self.ldx(instruction.operand.unwrap()),
             OpGroup::LDY => self.ldy(instruction.operand.unwrap()),
             OpGroup::LSR => self.lsr(if instruction.operand.is_none() {
@@ -268,6 +277,7 @@ impl CPU {
             OpGroup::PHP => self.php(),
             OpGroup::PLA => self.pla(),
             OpGroup::PLP => self.plp(),
+            OpGroup::RLA => self.rla(instruction.operand.unwrap().unwrap_right()),
             OpGroup::ROL => self.rol(if instruction.operand.is_none() {
                 None
             } else {
@@ -278,12 +288,16 @@ impl CPU {
             } else {
                 Some(instruction.operand.unwrap().unwrap_right())
             }),
+            OpGroup::RRA => self.rra(instruction.operand.unwrap().unwrap_right()),
             OpGroup::RTI => self.rti(),
             OpGroup::RTS => self.rts(),
+            OpGroup::SAX => self.sax(instruction.operand.unwrap().unwrap_right()),
             OpGroup::SBC => self.sbc(instruction.operand.unwrap()),
             OpGroup::SEC => self.sec(),
             OpGroup::SED => self.sed(),
             OpGroup::SEI => self.sei(),
+            OpGroup::SRE => self.sre(instruction.operand.unwrap().unwrap_right()),
+            OpGroup::SLO => self.slo(instruction.operand.unwrap().unwrap_right()),
             OpGroup::STA => self.sta(instruction.operand.unwrap().unwrap_right()),
             OpGroup::STX => self.stx(instruction.operand.unwrap().unwrap_right()),
             OpGroup::STY => self.sty(instruction.operand.unwrap().unwrap_right()),
@@ -473,6 +487,11 @@ impl CPU {
         self.handle_comparision(self.register_y, value);
     }
 
+    fn dcp(&mut self, operand: Address) {
+        self.dec(operand);
+        self.cmp(Right(operand));
+    }
+
     fn dec(&mut self, operand: Address) {
         let value = self.bus.mem_read(operand);
         let (result, _) = value.overflowing_sub(1.into());
@@ -500,6 +519,11 @@ impl CPU {
         self.register_a ^= value;
 
         self.handle_zero_and_negative_flags(self.register_a);
+    }
+
+    fn isb(&mut self, operand: Address) {
+        self.inc(operand);
+        self.sbc(Right(operand));
     }
 
     fn inc(&mut self, operand: Address) {
@@ -540,6 +564,11 @@ impl CPU {
     fn lda(&mut self, operand: Either<Value, Address>) {
         self.register_a = self.fetch_value(operand);
         self.handle_zero_and_negative_flags(self.register_a);
+    }
+
+    fn lax(&mut self, operand: Either<Value, Address>) {
+        self.lda(operand);
+        self.ldx(operand);
     }
 
     fn ldx(&mut self, operand: Either<Value, Address>) {
@@ -598,6 +627,11 @@ impl CPU {
         self.status.break_cmd = false;
     }
 
+    fn rla(&mut self, operand: Address) {
+        self.rol(Some(operand));
+        self.and(Right(operand));
+    }
+
     fn rol(&mut self, operand: Option<Address>) {
         let value = if let Some(addr) = operand {
             self.fetch_value(Right(addr))
@@ -642,6 +676,11 @@ impl CPU {
         }
     }
 
+    fn rra(&mut self, operand: Address) {
+        self.ror(Some(operand));
+        self.adc(Right(operand));
+    }
+
     fn rti(&mut self) {
         self.status = self.pop_stack().into();
         let high = self.pop_stack();
@@ -654,6 +693,11 @@ impl CPU {
         let low = self.pop_stack();
         self.program_counter = Value16::from_values(high, low).into();
         self.program_counter += 1.into();
+    }
+
+    fn sax(&mut self, operand: Address) {
+        let result = self.register_a & self.register_x;
+        self.bus.mem_write(operand, result);
     }
 
     fn sbc(&mut self, operand: Either<Value, Address>) {
@@ -672,6 +716,16 @@ impl CPU {
 
     fn sei(&mut self) {
         self.status.interrupt = true;
+    }
+
+    fn sre(&mut self, operand: Address) {
+        self.lsr(Some(operand));
+        self.eor(Right(operand));
+    }
+
+    fn slo(&mut self, operand: Address) {
+        self.asl(Some(operand));
+        self.ora(Right(operand));
     }
 
     fn sta(&mut self, operand: Address) {
@@ -727,9 +781,19 @@ fn trace(cpu: &CPU) -> String {
     let interpreted_instruction = format_interpreted_instruction(&instruction, &cpu);
     let registers = format_registers(&cpu);
 
+    let instruction_prefix = if instruction.opcode.is_offical {
+        " "
+    } else {
+        "*"
+    };
+
     format!(
-        "{:04X}  {:8}  {:30}  {}",
-        cpu.program_counter, raw_instruction, interpreted_instruction, registers
+        "{:04X}  {:8} {}{:30}  {}",
+        cpu.program_counter,
+        raw_instruction,
+        instruction_prefix,
+        interpreted_instruction,
+        registers
     )
 }
 

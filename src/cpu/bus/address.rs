@@ -3,7 +3,7 @@ use std::ops;
 
 use super::{
     combine_high_low, split_high_low,
-    values::{Value, Value16},
+    values::{SignedValue, Value, Value16},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -63,6 +63,10 @@ impl ops::Add for Address {
 impl Address {
     pub const fn from_const(value: u16) -> Address {
         Address(value)
+    }
+
+    pub fn wrapping_sub(self, value: Address) -> Address {
+        self.0.wrapping_sub(value.0).into()
     }
 
     pub fn wrapping_add(self, value: Address) -> Address {

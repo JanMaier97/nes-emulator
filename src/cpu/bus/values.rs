@@ -7,6 +7,8 @@ use super::{address::Address, split_high_low};
 #[derive(Debug, Eq, Hash, PartialOrd, Clone, Copy)]
 pub struct Value(u8);
 
+pub struct SignedValue(i8);
+
 #[derive(Debug, Clone, Copy)]
 pub struct Value16(u16);
 
@@ -26,13 +28,20 @@ impl ops::Not for Value {
 
 impl ops::BitOrAssign for Value {
     fn bitor_assign(&mut self, rhs: Self) {
-        self.0 ^= rhs.0;
+        self.0 |= rhs.0;
     }
 }
 
 impl ops::BitXorAssign for Value {
     fn bitxor_assign(&mut self, rhs: Self) {
         self.0 ^= rhs.0;
+    }
+}
+
+impl ops::BitXor for Value {
+    type Output = Self;
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        Value(self.0 ^ rhs.0)
     }
 }
 
